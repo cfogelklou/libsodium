@@ -107,6 +107,28 @@ small_order(const unsigned char R[32])
 }
 #endif
 
+#include "utils/ble_log.h"
+#include "utils/helper_macros.h"
+#include "utils/convert_utils.h"
+#include "platform/osal.h"
+
+
+
+void LOG_Int(const int32_t *arr, int len){
+  int i;
+  for (i = 0; i < len; i++){
+    LOG_TRACE(("arr[%d] = %d\r\n", i, arr[i]));
+  }
+}
+
+void LOG_FE10(const char *name, const int32_t *arr){
+  int i;
+  for (i = 0; i < 10; i++){
+    LOG_TRACE(("%s[%d]= %d\r\n", name, i, arr[i]));
+  }
+  OSALSleep(50);
+}
+
 int
 _crypto_sign_ed25519_verify_detached(const unsigned char *sig,
                                      const unsigned char *m,
@@ -134,6 +156,21 @@ _crypto_sign_ed25519_verify_detached(const unsigned char *sig,
     if (ge_frombytes_negate_vartime(&A, pk) != 0) {
         return -1;
     }
+
+    LOG_TRACE(("After ge_frombytes_negate_vartime()\r\n"));
+    LOG_TRACE(("A.X:\r\n"));
+    LOG_Int(A.X, ARRSZ(A.X));
+    OSALSleep(50);
+    LOG_TRACE(("A.Y:\r\n"));
+    LOG_Int(A.Y, ARRSZ(A.Y));
+    OSALSleep(50);
+    LOG_TRACE(("A.Z:\r\n"));
+    LOG_Int(A.Z, ARRSZ(A.Z));
+    OSALSleep(50);
+    LOG_TRACE(("A.T:\r\n"));
+    LOG_Int(A.T, ARRSZ(A.T));
+    OSALSleep(50);
+
     for (i = 0; i < 32; ++i) {
         d |= pk[i];
     }
@@ -145,13 +182,39 @@ _crypto_sign_ed25519_verify_detached(const unsigned char *sig,
     crypto_hash_sha512_update(&hs, pk, 32);
     crypto_hash_sha512_update(&hs, m, mlen);
     crypto_hash_sha512_final(&hs, h);
+    LOG_TRACE(("final hash:\r\n"));
+    LOG_Hex(h, sizeof(h));
+    OSALSleep(100);
     sc_reduce(h);
 
+    LOG_TRACE(("reduced hash:\r\n"));
+    LOG_Hex(h, sizeof(h));
+    OSALSleep(100);
+
     ge_double_scalarmult_vartime(&R, h, &A, sig + 32);
+
+    LOG_FE10("R.X", R.X);
+    LOG_FE10("R.Y", R.Y);
+    LOG_FE10("R.Z", R.Z);
+
     ge_tobytes(rcheck, &R);
 
-    return crypto_verify_32(rcheck, sig) | (-(rcheck == sig)) |
-           sodium_memcmp(sig, rcheck, 32);
+    LOG_TRACE(("rcheck:\r\n"));
+    LOG_Hex(rcheck, sizeof(rcheck));
+    OSALSleep(100);
+
+    {
+      int cv32, rcs, smp;
+      cv32 = crypto_verify_32(rcheck, sig);
+      LOG_TRACE(("crypto_verify_32=%d\r\n", cv32));
+      rcs = (-(rcheck == sig));
+      LOG_TRACE(("(-(rcheck == sig))=%d\r\n", rcs));
+      smp = sodium_memcmp(sig, rcheck, 32);
+      LOG_TRACE(("sodium_memcmp=%d\r\n", smp));
+
+      OSALSleep(100);
+      return cv32 | rcs | smp;
+    }
 }
 
 int

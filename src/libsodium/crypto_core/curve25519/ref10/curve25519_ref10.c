@@ -3,6 +3,32 @@
 #include <string.h>
 #include "crypto_verify_32.h"
 #include "private/curve25519_ref10.h"
+#include "utils/ble_log.h"
+#include "utils/convert_utils.h"
+#include "platform/osal.h"
+
+#ifdef GCC_NO_OPT
+//int foo(int i) __attribute__((optimize("-O3")));
+#pragma GCC push_options
+#pragma GCC optimize ("-O0")
+#endif
+
+static int curve25519_dbg = 0;
+#include "utils/helper_macros.h"
+static int PTcnt = 0;
+
+
+extern void LOG_Int(const int32_t *arr, int len);
+void LOG_FE10(const char *name, const int32_t *arr);
+
+void PT(ge_p1p1 *pt){
+  LOG_TRACE(("t(%d):\r\n", PTcnt));
+  LOG_FE10("pt->X", pt->X);
+  LOG_FE10("pt->Y", pt->Y);
+  LOG_FE10("pt->Z", pt->Z);
+  LOG_FE10("pt->T", pt->T);
+  PTcnt++;
+}
 
 static inline uint64_t load_3(const unsigned char *in)
 {
@@ -56,9 +82,15 @@ void fe_1(fe h)
  Postconditions:
  |h| bounded by 1.1*2^26,1.1*2^25,1.1*2^26,1.1*2^25,etc.
  */
-
+#include "utils/helper_macros.h"
 void fe_add(fe h,const fe f,const fe g)
 {
+  COMPILE_TIME_ASSERT(sizeof(int64_t) == 8);
+  if (curve25519_dbg) {
+    LOG_FE10("f", f);
+    LOG_FE10("g", g);
+  }
+  {
     int32_t f0 = f[0];
     int32_t f1 = f[1];
     int32_t f2 = f[2];
@@ -99,6 +131,10 @@ void fe_add(fe h,const fe f,const fe g)
     h[7] = h7;
     h[8] = h8;
     h[9] = h9;
+  }
+  if (curve25519_dbg) {
+    LOG_FE10("h", g);
+  }
 }
 
 /*
@@ -1182,6 +1218,9 @@ void ge_add(ge_p1p1 *r,const ge_p3 *p,const ge_cached *q)
     fe_sub(r->T, t0, r->T);
 }
 
+#pragma GCC push_options
+#pragma GCC optimize ("-O0")
+
 static void slide(signed char *r,const unsigned char *a)
 {
     int i;
@@ -1190,6 +1229,10 @@ static void slide(signed char *r,const unsigned char *a)
 
     for (i = 0;i < 256;++i)
         r[i] = 1 & (a[i >> 3] >> (i & 7));
+
+    LOG_TRACE(("r1:\r\n"));
+    LOG_Hex((uint8_t *)r, 256);
+    OSALSleep(100);
 
     for (i = 0;i < 256;++i)
         if (r[i]) {
@@ -1212,7 +1255,14 @@ static void slide(signed char *r,const unsigned char *a)
             }
         }
 
+    OSALSleep(100);
+    LOG_TRACE(("r2:\r\n"));
+    LOG_Hex((uint8_t *)r, 256);
+    OSALSleep(100);
 }
+
+#pragma GCC pop_options
+
 
 static const ge_precomp Bi[8] = {
 #include "base2.h"
@@ -1380,10 +1430,28 @@ static const fe d2 = {
 
 extern void ge_p3_to_cached(ge_cached *r,const ge_p3 *p)
 {
+    curve25519_dbg = 1;
+    // void fe_add(fe h,const fe f,const fe g)
     fe_add(r->YplusX,p->Y,p->X);
+    LOG_TRACE(("r->YplusX:\r\n"));
+    LOG_Int(r->YplusX, ARRSZ(r->YplusX));
+    OSALSleep(20);
+    
     fe_sub(r->YminusX,p->Y,p->X);
+    LOG_TRACE(("r->YminusX:\r\n"));
+    LOG_Int(r->YminusX, ARRSZ(r->YminusX));
+    OSALSleep(20);
+    
     fe_copy(r->Z,p->Z);
+    LOG_TRACE(("r->Z:\r\n"));
+    LOG_Int(r->Z, ARRSZ(r->Z));
+    OSALSleep(20);
+    
     fe_mul(r->T2d,p->T,d2);
+    LOG_TRACE(("r->T2d:\r\n"));
+    LOG_Int(r->T2d, ARRSZ(r->T2d));
+    OSALSleep(20);
+    curve25519_dbg = 0;
 }
 
 /*
@@ -1418,7 +1486,19 @@ void ge_p3_dbl(ge_p1p1 *r,const ge_p3 *p)
 {
     ge_p2 q;
     ge_p3_to_p2(&q,p);
+    if (curve25519_dbg) {
+      LOG_FE10("q.X", q.X);
+      LOG_FE10("q.Y", q.Y);
+      LOG_FE10("q.Z", q.Z);
+    }
+
+    OSALSleep(100);
     ge_p2_dbl(r,&q);
+    if (curve25519_dbg) {
+      LOG_FE10("r->X", r->X);
+      LOG_FE10("r->Y", r->Y);
+      LOG_FE10("r->Z", r->Z);
+    }
 }
 
 void ge_precomp_0(ge_precomp *h)
@@ -1531,6 +1611,8 @@ void ge_tobytes(unsigned char *s,const ge_p2 *h)
  B is the Ed25519 base point (x,4/5) with x positive.
  */
 
+
+
 void ge_double_scalarmult_vartime(ge_p2 *r,const unsigned char *a,const ge_p3 *A,const unsigned char *b)
 {
     signed char aslide[256];
@@ -1541,20 +1623,75 @@ void ge_double_scalarmult_vartime(ge_p2 *r,const unsigned char *a,const ge_p3 *A
     ge_p3 A2;
     int i;
 
+    LOG_TRACE(("a:\r\n"));
+    LOG_Hex((uint8_t *)a, 64);
+    OSALSleep(100);
+    LOG_TRACE(("b:\r\n"));
+    LOG_Hex((uint8_t *)b, 32);
+    OSALSleep(100);
+
     slide(aslide,a);
     slide(bslide,b);
 
+    LOG_TRACE(("aslide:\r\n"));
+    LOG_Hex((uint8_t *)aslide, sizeof(aslide));
+    OSALSleep(100);
+    LOG_TRACE(("bslide:\r\n"));
+    LOG_Hex((uint8_t *)bslide, sizeof(bslide));
+    OSALSleep(100);
+
+    LOG_TRACE(("After aslide bslide\r\n"));
+    LOG_TRACE(("A->X:\r\n"));
+    LOG_Int(A->X, ARRSZ(A->X));
+    OSALSleep(50);
+    LOG_TRACE(("A->Y:\r\n"));
+    LOG_Int(A->Y, ARRSZ(A->Y));
+    OSALSleep(50);
+    LOG_TRACE(("A->Z:\r\n"));
+    LOG_Int(A->Z, ARRSZ(A->Z));
+    OSALSleep(50);
+    LOG_TRACE(("A->T:\r\n"));
+    LOG_Int(A->T, ARRSZ(A->T));
+    OSALSleep(50);
+
+
+    LOG_TRACE(("Ai size = %d:\r\n", sizeof(Ai)));
+    OSALSleep(100);
+
     ge_p3_to_cached(&Ai[0],A);
-    ge_p3_dbl(&t,A); ge_p1p1_to_p3(&A2,&t);
-    ge_add(&t,&A2,&Ai[0]); ge_p1p1_to_p3(&u,&t); ge_p3_to_cached(&Ai[1],&u);
-    ge_add(&t,&A2,&Ai[1]); ge_p1p1_to_p3(&u,&t); ge_p3_to_cached(&Ai[2],&u);
-    ge_add(&t,&A2,&Ai[2]); ge_p1p1_to_p3(&u,&t); ge_p3_to_cached(&Ai[3],&u);
-    ge_add(&t,&A2,&Ai[3]); ge_p1p1_to_p3(&u,&t); ge_p3_to_cached(&Ai[4],&u);
-    ge_add(&t,&A2,&Ai[4]); ge_p1p1_to_p3(&u,&t); ge_p3_to_cached(&Ai[5],&u);
-    ge_add(&t,&A2,&Ai[5]); ge_p1p1_to_p3(&u,&t); ge_p3_to_cached(&Ai[6],&u);
-    ge_add(&t,&A2,&Ai[6]); ge_p1p1_to_p3(&u,&t); ge_p3_to_cached(&Ai[7],&u);
+
+    PT(&t);
+
+    ge_p3_dbl(&t,A); PT(&t); ge_p1p1_to_p3(&A2,&t); PT(&t); 
+    ge_add(&t,&A2,&Ai[0]); PT(&t); ge_p1p1_to_p3(&u,&t); PT(&t); ge_p3_to_cached(&Ai[1],&u); PT(&t);
+    ge_add(&t,&A2,&Ai[1]); PT(&t); ge_p1p1_to_p3(&u,&t); PT(&t); ge_p3_to_cached(&Ai[2],&u); PT(&t);
+    ge_add(&t,&A2,&Ai[2]); PT(&t); ge_p1p1_to_p3(&u,&t); PT(&t); ge_p3_to_cached(&Ai[3],&u); PT(&t);
+    ge_add(&t,&A2,&Ai[3]); PT(&t); ge_p1p1_to_p3(&u,&t); PT(&t); ge_p3_to_cached(&Ai[4],&u); PT(&t);
+    ge_add(&t,&A2,&Ai[4]); PT(&t); ge_p1p1_to_p3(&u,&t); PT(&t); ge_p3_to_cached(&Ai[5],&u); PT(&t);
+    ge_add(&t,&A2,&Ai[5]); PT(&t); ge_p1p1_to_p3(&u,&t); PT(&t); ge_p3_to_cached(&Ai[6],&u); PT(&t);
+    ge_add(&t,&A2,&Ai[6]); PT(&t); ge_p1p1_to_p3(&u,&t); PT(&t); ge_p3_to_cached(&Ai[7],&u); PT(&t);
+
+    PT(&t);
+
+    {
+      int ai;
+      for (ai = 0; ai < 8; ai++){
+        LOG_TRACE(("Ai[%d] = :\r\n", ai));
+        //LOG_Hex((uint8_t *)&Ai[ai], sizeof(Ai[ai]));
+        LOG_FE10("Ai[].YplusX", Ai[ai].YplusX);
+        LOG_FE10("Ai[].YminusX", Ai[ai].YminusX);
+        LOG_FE10("Ai[].T2d", Ai[ai].T2d);
+        LOG_FE10("Ai[].Z", Ai[ai].Z);
+      }
+    }
 
     ge_p2_0(r);
+    LOG_TRACE(("r:\r\n"));
+    //LOG_Hex((uint8_t *)r, sizeof(ge_p2));
+    LOG_FE10("r->X", r->X);
+    LOG_FE10("r->Y", r->Y);
+    LOG_FE10("r->Z", r->Z);
+    OSALSleep(100);
 
     for (i = 255;i >= 0;--i) {
         if (aslide[i] || bslide[i]) break;
@@ -2240,3 +2377,7 @@ void sc_reduce(unsigned char *s)
     s[30] = s11 >> 9;
     s[31] = s11 >> 17;
 }
+
+#ifdef GCC_NO_OPT
+#pragma GCC pop_options
+#endif

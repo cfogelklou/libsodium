@@ -1229,6 +1229,7 @@ static void slide(signed char *r,const unsigned char *a)
     int k;
     int ribs;
     int cmp;
+	
     for (i = 0;i < 256;++i)
         r[i] = 1 & (a[i >> 3] >> (i & 7));
 

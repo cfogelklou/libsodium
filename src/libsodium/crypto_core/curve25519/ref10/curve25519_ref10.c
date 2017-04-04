@@ -1182,46 +1182,6 @@ void ge_add(ge_p1p1 *r,const ge_p3 *p,const ge_cached *q)
     fe_sub(r->T, t0, r->T);
 }
 
-#if (!(PPC_USE_VLE > 0))
-// The following fuction causes crashes when -O1 is enabled on
-// SPC5Studio for SPC5 PowerPC.  The crash occurs in
-// ge_double_scalarmult_vartime(), which has no out-of-range
-// variable detection in the loop that depends on slide output.
-static void slide(signed char *r,const unsigned char *a)
-{
-    int i;
-    int b;
-    int k;
-
-    for (i = 0;i < 256;++i)
-        r[i] = 1 & (a[i >> 3] >> (i & 7));
-
-    for (i = 0;i < 256;++i)
-        if (r[i]) {
-            for (b = 1;b <= 6 && i + b < 256;++b) {
-                if (r[i + b]) {
-                    if (r[i] + (r[i + b] << b) <= 15) {
-                        r[i] += r[i + b] << b; r[i + b] = 0;
-                    } else if (r[i] - (r[i + b] << b) >= -15) {
-                        r[i] -= r[i + b] << b;
-                        for (k = i + b;k < 256;++k) {
-                            if (!r[k]) {
-                                r[k] = 1;
-                                break;
-                            }
-                            r[k] = 0;
-                        }
-                    } else
-                        break;
-                }
-            }
-        }
-
-}
-
-
-#else
-
 static void slide(signed char *r,const unsigned char *a)
 {
     int i;
@@ -1261,7 +1221,6 @@ static void slide(signed char *r,const unsigned char *a)
         }
 
 }
-#endif
 
 static const ge_precomp Bi[8] = {
 #include "base2.h"
